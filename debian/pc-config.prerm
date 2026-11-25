@@ -3,7 +3,28 @@ set -e
 
 # dh_installsystemd --no-start can omit the removal-time stop.
 if [ "$1" = remove ] && [ -z "${DPKG_ROOT:-}" ] && [ -d /run/systemd/system ]; then
-    deb-systemd-invoke stop pc-config.service
+    service=pc-config.service
+    before="$(systemctl show --property=ActiveState --value "$service")"
+    test -n "$before"
+    deb-systemd-invoke stop "$service"
+    after="$(systemctl show --property=ActiveState --value "$service")"
+
+    case "$after" in
+        inactive|failed) ;;
+        *)
+            printf 'Unable to stop %s (state: %s).\n' "$service" "$after" >&2
+            exit 1
+            ;;
+    esac
+
+    # A failed stop job can leave the override in PID 1.
+    if [ "$before" = failed ] || [ "$after" = failed ]; then
+        device="$(systemctl show --property=WatchdogDevice --value)"
+        if [ "$device" = /dev/pc-config-watchdog ]; then
+            busctl --system set-property org.freedesktop.systemd1 /org/freedesktop/systemd1 \
+                org.freedesktop.systemd1.Manager RuntimeWatchdogUSec t 18446744073709551615
+        fi
+    fi
 fi
 
 #DEBHELPER#
