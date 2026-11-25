@@ -1,2 +1,1 @@
 debian/60-pc-config-watchdog.conf usr/lib/systemd/system.conf.d/
-debian/watchdog-runtime.conf usr/share/pc-config/

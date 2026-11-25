@@ -8,7 +8,7 @@ Rules-Requires-Root: no
 
 Package: pc-config
 Architecture: amd64
-Depends: ${misc:Depends}, kmod, systemd (>= 252), udev (>= 252)
+Depends: ${misc:Depends}, default-dbus-system-bus | dbus-system-bus, kmod, systemd (>= 252), udev (>= 252)
 Description: AMD hardware watchdog settings for a Linux workstation
  Loads the sp5100_tco driver during normal startup and configures systemd
  to keep its hardware watchdog alive with a five-minute timeout.

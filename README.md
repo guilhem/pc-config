@@ -40,7 +40,9 @@ watchdog="$(basename "$(readlink -f /dev/pc-config-watchdog)")"
 cat "/sys/class/watchdog/$watchdog/state" "/sys/class/watchdog/$watchdog/timeout"
 ```
 
-The expected device is `/dev/pc-config-watchdog`. The hardware state and timeout should read `active` and `300`. To remove the package, run `sudo apt purge pc-config`. Systemd picks up its previous watchdog device at the next boot.
+The expected device is `/dev/pc-config-watchdog`. The hardware state and timeout should read `active` and `300`. The service sets the timeout through systemd's D-Bus API and restores the configured value when stopped.
+
+When upgrading from 0.1.0, the current boot keeps the existing watchdog configuration. Reboot to activate the D-Bus service. If you run `sudo apt purge pc-config` before rebooting, the package stops the service and removes the old runtime drop-in. Systemd picks up its previous watchdog device at the next boot.
 
 ## Build from source
 

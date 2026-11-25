@@ -33,25 +33,58 @@ jobs:
           dpkg-buildpackage -us -uc -b
           mkdir dist
           cp "../pc-config_${version}_amd64.deb" dist/
-      - name: Install, reinstall and purge in a clean container
+      - name: Test upgrade from the published package and purge before reboot
         run: |
-          docker run --rm --volume "$PWD/dist:/packages:ro" ubuntu:24.04 sh -euc '
+          version="$(dpkg-parsechangelog --show-field Version)"
+          legacy_dir="$(mktemp -d "$RUNNER_TEMP/pc-config-legacy.XXXXXX")"
+          trap 'rm -rf -- "$legacy_dir"' EXIT
+          legacy_package="$legacy_dir/pc-config_0.1.0_amd64.deb"
+          curl --fail --silent --show-error --location --retry 3 --output "$legacy_package" \
+            https://github.com/guilhem/pc-config/releases/download/v0.1.0/pc-config_0.1.0_amd64.deb
+          printf '%s  %s\n' 40e2451dbc4ba2093e476ec2ee8cf760584f0f306b2e5a13a5628e9ababa7c23 "$legacy_package" |
+            sha256sum --check --strict
+
+          docker run --rm --interactive \
+            --volume "$legacy_dir:/legacy:ro" \
+            --volume "$PWD/dist:/packages:ro" \
+            --env "PACKAGE_VERSION=$version" \
+            ubuntu:24.04 sh -eu <<'EOF'
             apt-get update -qq
             export DEBIAN_FRONTEND=noninteractive
-            apt-get install -y --no-install-recommends /packages/pc-config_*.deb
-            test "$(dpkg-query -W -f="\${Status}" pc-config)" = "install ok installed"
+            candidate="/packages/pc-config_${PACKAGE_VERSION}_amd64.deb"
+            runtime_dir=/run/systemd/system.conf.d
+            legacy_runtime="$runtime_dir/60-pc-config-watchdog-runtime.conf"
+            legacy_template=/usr/share/pc-config/watchdog-runtime.conf
+
+            dpkg --compare-versions "$PACKAGE_VERSION" gt 0.1.0
+            apt-get install -y --no-install-recommends /legacy/pc-config_0.1.0_amd64.deb
+            test "$(dpkg-query -W -f='${Version}' pc-config)" = 0.1.0
+            test ! -e "$legacy_runtime"
+            install -D -m 0644 "$legacy_template" "$legacy_runtime"
+            legacy_checksum="$(sha256sum "$legacy_runtime")"
+
+            apt-get install -y --only-upgrade --no-install-recommends "$candidate"
+            test "$(dpkg-query -W -f='${Status} ${Version}' pc-config)" = "install ok installed $PACKAGE_VERSION"
             systemctl --root=/ is-enabled pc-config.service
-            test -f /usr/lib/systemd/system.conf.d/60-pc-config-watchdog.conf
-            test -f /usr/share/pc-config/watchdog-runtime.conf
-            test ! -e /run/systemd/system.conf.d/60-pc-config-watchdog-runtime.conf
-            apt-get install -y --reinstall /packages/pc-config_*.deb
-            install -D /usr/share/pc-config/watchdog-runtime.conf /run/systemd/system.conf.d/60-pc-config-watchdog-runtime.conf
+            test ! -e "$legacy_template"
+            test "$(find "$runtime_dir" -maxdepth 1 -name '*pc-config*' -print)" = "$legacy_runtime"
+            printf '%s\n' "$legacy_checksum" | sha256sum --check --strict
+
             apt-get purge -y pc-config
-            test ! -e /run/systemd/system.conf.d/60-pc-config-watchdog-runtime.conf
+            test -z "$(find "$runtime_dir" -maxdepth 1 -name '*pc-config*' -print)"
             test ! -e /usr/lib/systemd/system.conf.d/60-pc-config-watchdog.conf
+            test ! -e /usr/lib/systemd/system/pc-config.service
+            test ! -e /usr/lib/udev/rules.d/60-pc-config.rules
             test ! -e /usr/share/pc-config
             test ! -L /etc/systemd/system/multi-user.target.wants/pc-config.service
-          '
+
+            apt-get install -y --no-install-recommends "$candidate"
+            test "$(dpkg-query -W -f='${Status} ${Version}' pc-config)" = "install ok installed $PACKAGE_VERSION"
+            systemctl --root=/ is-enabled pc-config.service
+            test -f /usr/lib/systemd/system.conf.d/60-pc-config-watchdog.conf
+            test ! -e "$legacy_template"
+            test -z "$(find "$runtime_dir" -maxdepth 1 -name '*pc-config*' -print)"
+          EOF
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: debian-package
