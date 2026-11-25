@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+# Clear the timeout before debhelper reloads systemd, even if the service never stopped.
+case "$1" in
+    remove|purge)
+        rm -f "${DPKG_ROOT}/run/systemd/system.conf.d/60-pc-config-watchdog-runtime.conf"
+        ;;
+esac
+
+#DEBHELPER#

@@ -45,7 +45,9 @@ jobs:
             test -f /usr/share/pc-config/watchdog-runtime.conf
             test ! -e /run/systemd/system.conf.d/60-pc-config-watchdog-runtime.conf
             apt-get install -y --reinstall /packages/pc-config_*.deb
+            install -D /usr/share/pc-config/watchdog-runtime.conf /run/systemd/system.conf.d/60-pc-config-watchdog-runtime.conf
             apt-get purge -y pc-config
+            test ! -e /run/systemd/system.conf.d/60-pc-config-watchdog-runtime.conf
             test ! -e /usr/lib/systemd/system.conf.d/60-pc-config-watchdog.conf
             test ! -e /usr/share/pc-config
             test ! -L /etc/systemd/system/multi-user.target.wants/pc-config.service
