@@ -1,0 +1,5 @@
+pc-config (0.1.0) unstable; urgency=medium
+
+  * Package the AMD hardware watchdog configuration.
+
+ -- Guilhem Lettron <guilhem@users.noreply.github.com>  Wed, 25 Nov 2026 12:00:00 +0100

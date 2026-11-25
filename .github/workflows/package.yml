@@ -1,0 +1,119 @@
+name: Build and publish Debian package
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.ref_type == 'tag' && 'publish-package' || github.ref }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Build with debhelper
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential debhelper
+          version="$(dpkg-parsechangelog --show-field Version)"
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::Tag must match the version in debian/changelog"
+            exit 1
+          fi
+          dpkg-buildpackage -us -uc -b
+          mkdir dist
+          cp "../pc-config_${version}_amd64.deb" dist/
+      - name: Install, reinstall and purge in a clean container
+        run: |
+          docker run --rm --volume "$PWD/dist:/packages:ro" ubuntu:24.04 sh -euc '
+            apt-get update -qq
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get install -y --no-install-recommends /packages/pc-config_*.deb
+            test "$(dpkg-query -W -f="\${Status}" pc-config)" = "install ok installed"
+            systemctl --root=/ is-enabled pc-config.service
+            test -f /usr/lib/systemd/system.conf.d/60-pc-config-watchdog.conf
+            test -f /usr/share/pc-config/watchdog-runtime.conf
+            test ! -e /run/systemd/system.conf.d/60-pc-config-watchdog-runtime.conf
+            apt-get install -y --reinstall /packages/pc-config_*.deb
+            apt-get purge -y pc-config
+            test ! -e /usr/lib/systemd/system.conf.d/60-pc-config-watchdog.conf
+            test ! -e /usr/share/pc-config
+            test ! -L /etc/systemd/system/multi-user.target.wants/pc-config.service
+          '
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: debian-package
+          path: dist/*.deb
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: debian-package
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          package="$(basename ./*.deb)"
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" "$package" --verify-tag --generate-notes
+          elif ! gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' | grep -Fxq "$package"; then
+            gh release upload "$GITHUB_REF_NAME" "$package"
+          fi
+
+  apt:
+    needs: release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Collect released packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tags="$(gh api --paginate "repos/$GH_REPO/releases" \
+            --jq '.[] | select(.draft == false and .prerelease == false and any(.assets[]; .name | test("^pc-config_.*_amd64[.]deb$"))) | .tag_name')"
+          test -n "$tags"
+          while IFS= read -r tag; do
+            gh release download "$tag" --pattern 'pc-config_*_amd64.deb' --dir apt-repo/stable
+          done <<< "$tags"
+      - name: Index and sign the APT repository
+        uses: mithro/apt-repo-action@477b0f86f1ed4a22a7d2873aa478c457bf84bb14
+        with:
+          apt-root: apt-repo
+          suites: stable
+          gpg-private-key: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+      - name: Verify the signed index
+        run: gpgv --keyring "$PWD/apt-repo/pc-config.gpg" apt-repo/stable/InRelease
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: apt-repo
+
+  pages:
+    needs: apt
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

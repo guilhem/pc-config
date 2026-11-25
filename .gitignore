@@ -1,0 +1,6 @@
+/debian/.debhelper/
+/debian/debhelper-build-stamp
+/debian/files
+/debian/pc-config/
+/debian/pc-config.debhelper.log
+/debian/pc-config.substvars

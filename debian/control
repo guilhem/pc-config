@@ -1,0 +1,14 @@
+Source: pc-config
+Section: admin
+Priority: optional
+Maintainer: Guilhem Lettron <guilhem@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: pc-config
+Architecture: amd64
+Depends: ${misc:Depends}, kmod, systemd (>= 252), udev (>= 252)
+Description: AMD hardware watchdog settings for a Linux workstation
+ Loads the sp5100_tco driver during normal startup and configures systemd
+ to keep its hardware watchdog alive with a five-minute timeout.

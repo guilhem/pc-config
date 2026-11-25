@@ -1,0 +1,1 @@
+SUBSYSTEM=="watchdog", KERNEL=="watchdog[0-9]*", DRIVERS=="sp5100-tco", SYMLINK+="pc-config-watchdog"

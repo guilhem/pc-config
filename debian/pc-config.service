@@ -1,0 +1,17 @@
+[Unit]
+Description=Configure the AMD TCO hardware watchdog
+Documentation=man:systemd-system.conf(5) man:modprobe(8)
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# PID 1 only applies WatchdogDevice when it starts. Check before setting a timeout.
+ExecCondition=/bin/sh -ec 'test "$$(systemctl show --property=WatchdogDevice --value)" = /dev/pc-config-watchdog'
+ExecStart=/usr/sbin/modprobe sp5100_tco
+ExecStart=/usr/bin/udevadm wait --timeout=15 /dev/pc-config-watchdog
+ExecStart=/usr/bin/install -D -m 0644 /usr/share/pc-config/watchdog-runtime.conf /run/systemd/system.conf.d/60-pc-config-watchdog-runtime.conf
+ExecStart=/usr/bin/systemctl daemon-reload
+ExecStopPost=/bin/sh -ec 'if test -f /run/systemd/system.conf.d/60-pc-config-watchdog-runtime.conf; then rm /run/systemd/system.conf.d/60-pc-config-watchdog-runtime.conf && systemctl daemon-reload; fi'
+
+[Install]
+WantedBy=multi-user.target
